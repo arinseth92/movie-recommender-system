@@ -6,11 +6,7 @@ import time
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-# --- Load Data ---
-movies = pickle.load(open('movies.pkl', 'rb'))
-similarity = pickle.load(open('similarity.pkl', 'rb'))
-
-# --- Setup Retry Session for TMDb API ---
+# --- Retry session setup for robustness ---
 session = requests.Session()
 retry_strategy = Retry(
     total=3,
@@ -27,7 +23,27 @@ headers = {
     'Accept': 'application/json'
 }
 
-API_KEY = "8265bd1679663a7ea12ac168da84d2e8"  # Your preferred API key
+API_KEY = "8265bd1679663a7ea12ac168da84d2e8"  # Your preferred TMDb API key
+
+# --- Load Data from Hugging Face ---
+@st.cache_resource
+def load_data():
+    movies_url = "https://huggingface.co/datasets/arinseth92/movie-recommender-pkl/resolve/main/movies.pkl"
+    similarity_url = "https://huggingface.co/datasets/arinseth92/movie-recommender-pkl/resolve/main/similarity.pkl"
+
+    with open("movies.pkl", "wb") as f:
+        f.write(requests.get(movies_url).content)
+
+    with open("similarity.pkl", "wb") as f:
+        f.write(requests.get(similarity_url).content)
+
+    with open("movies.pkl", "rb") as f:
+        movies = pickle.load(f)
+
+    with open("similarity.pkl", "rb") as f:
+        similarity = pickle.load(f)
+
+    return movies, similarity
 
 # --- Fetch Poster ---
 def fetch_poster(movie_id):
@@ -47,8 +63,8 @@ def fetch_poster(movie_id):
 
 # --- Recommend Function ---
 def recommend(movie):
-    movie_index = movies[movies['title'] == movie].index[0]
-    distances = similarity[movie_index]
+    index = movies[movies['title'] == movie].index[0]
+    distances = similarity[index]
     movie_list = sorted(list(enumerate(distances)), reverse=True, key=lambda x: x[1])[1:6]
 
     recommended_titles = []
@@ -57,20 +73,23 @@ def recommend(movie):
     for i in movie_list:
         movie_id = movies.iloc[i[0]]['movie_id']
         recommended_titles.append(movies.iloc[i[0]]['title'])
-        time.sleep(1)  # avoid rapid-fire requests
+        time.sleep(1)  # API call spacing
         recommended_posters.append(fetch_poster(movie_id))
 
     return recommended_titles, recommended_posters
 
-# --- Streamlit UI ---
+# --- Streamlit App ---
 st.set_page_config(page_title="Movie Recommender", layout="wide")
 st.title("🎬 Movie Recommender System")
+
+movies, similarity = load_data()
 
 selected_movie_name = st.selectbox("Choose a movie you like:", movies['title'].values)
 
 if st.button("Recommend"):
     names, posters = recommend(selected_movie_name)
 
+    st.subheader("🎯 Top 5 Recommendations")
     cols = st.columns(5)
     for idx, col in enumerate(cols):
         with col:
